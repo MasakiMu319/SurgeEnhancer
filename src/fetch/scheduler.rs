@@ -47,13 +47,23 @@ pub async fn do_refresh(state: &AppState, client: &reqwest::Client, group_cfg: &
         Ok(mut nodes) => {
             let mut inner = state.inner.write().await;
 
-            // Assign ports
-            let port_map = port::assign_ports(
+            // Remove old entries for this group's previous nodes first
+            if let Some(gs) = inner.groups.get(&group_cfg.name) {
+                let old_names: Vec<String> = gs.nodes.iter().map(|n| n.name.clone()).collect();
+                for name in old_names {
+                    inner.port_map.remove(&name);
+                }
+            }
+
+            // Assign ports (merge into global port_map)
+            let new_entries = port::assign_ports(
                 &mut nodes,
                 state.config.port.range_start,
                 &inner.port_map,
             );
-            inner.port_map = port_map;
+
+            // Merge new entries
+            inner.port_map.extend(new_entries);
 
             // Update group state
             if let Some(gs) = inner.groups.get_mut(&group_cfg.name) {
