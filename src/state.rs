@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use tokio::sync::RwLock;
 
 use crate::config::AppConfig;
+use crate::mihomo_manager::MihomoManager;
 use crate::model::{GroupState, NodeHealth};
 
 #[derive(Clone)]
@@ -13,6 +14,7 @@ pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub config: Arc<RwLock<AppConfig>>,
     pub config_path: PathBuf,
+    pub mihomo: MihomoManager,
 }
 
 pub struct AppStateInner {
@@ -28,6 +30,7 @@ impl AppState {
         for g in &config.groups {
             groups.insert(g.name.clone(), GroupState::new(g.name.clone()));
         }
+        let mihomo = MihomoManager::new(config.mihomo.clone());
         Self {
             inner: Arc::new(RwLock::new(AppStateInner {
                 groups,
@@ -36,6 +39,7 @@ impl AppState {
             })),
             config: Arc::new(RwLock::new(config)),
             config_path,
+            mihomo,
         }
     }
 }

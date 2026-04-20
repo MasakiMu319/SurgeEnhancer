@@ -162,8 +162,16 @@ pub async fn status(State(state): State<AppState>) -> Response {
 
     let total_nodes: usize = inner.groups.values().map(|g| g.nodes.len()).sum();
 
+    let mihomo_state = state.mihomo.state.read().await;
+
     axum::Json(serde_json::json!({
         "total_nodes": total_nodes,
+        "mihomo": {
+            "status": mihomo_state.status,
+            "pid": mihomo_state.pid,
+            "restarts": mihomo_state.restarts,
+            "last_error": mihomo_state.last_error,
+        },
         "groups": groups,
     }))
     .into_response()

@@ -2,6 +2,7 @@ mod config;
 mod fetch;
 mod generate;
 mod mihomo_api;
+mod mihomo_manager;
 mod model;
 mod parse;
 mod port;
@@ -49,11 +50,18 @@ async fn main() -> Result<()> {
         "surge-enhancer starting"
     );
 
+    // Preflight: check dependencies
+    check_dependencies(&app_config)?;
+
     let state = state::AppState::new(app_config, cli.config.clone());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .context("building HTTP client")?;
+
+    // Spawn mihomo process manager
+    let mihomo = state.mihomo.clone();
+    tokio::spawn(async move { mihomo.run().await });
 
     // Spawn background refresh tasks
     fetch::scheduler::spawn_refresh_tasks(state.clone(), client);
@@ -84,6 +92,26 @@ async fn main() -> Result<()> {
 
     tracing::info!(addr = %listen_addr, "HTTP server listening");
     axum::serve(listener, app).await.context("axum server error")?;
+
+    Ok(())
+}
+
+/// Preflight checks — errors here abort startup.
+fn check_dependencies(config: &config::AppConfig) -> Result<()> {
+    // 1) mihomo binary must exist
+    match mihomo_manager::MihomoManager::find_binary() {
+        Some(path) => tracing::info!(path = %path, "mihomo binary found"),
+        None => anyhow::bail!(
+            "mihomo not found in PATH — install it first: https://github.com/MetaCubeX/mihomo"
+        ),
+    }
+
+    // 2) mihomo template file must exist
+    anyhow::ensure!(
+        config.mihomo.template.exists(),
+        "mihomo template not found: {}",
+        config.mihomo.template.display()
+    );
 
     Ok(())
 }
