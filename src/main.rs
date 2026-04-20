@@ -68,6 +68,7 @@ async fn main() -> Result<()> {
         .route("/refresh/{name}", post(server::api::refresh_group))
         .route("/status", get(server::api::status))
         .route("/api/delay/{name}", get(server::api::test_delay))
+        .route("/api/batch-delay/{name}", post(server::api::batch_delay))
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&state.config.server.listen)

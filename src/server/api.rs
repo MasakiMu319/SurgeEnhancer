@@ -113,17 +113,43 @@ pub async fn refresh_group(
 /// GET /status — JSON status for dashboard
 pub async fn status(State(state): State<AppState>) -> Response {
     let inner = state.inner.read().await;
+    let server_listen = &state.config.server.listen;
 
     let groups: Vec<serde_json::Value> = inner
         .groups
         .values()
         .map(|g| {
+            let group_cfg = state.config.groups.iter().find(|gc| gc.name == g.name);
+            let subscription = group_cfg.and_then(|gc| {
+                gc.subscription
+                    .as_deref()
+                    .map(|s| s.to_string())
+                    .or_else(|| gc.file.as_ref().map(|f| f.display().to_string()))
+            });
+
+            let nodes: Vec<serde_json::Value> = g
+                .nodes
+                .iter()
+                .map(|n| {
+                    serde_json::json!({
+                        "name": n.name,
+                        "type": n.node_type.to_string(),
+                        "server": n.server,
+                        "port": n.port,
+                        "assigned_port": n.assigned_port,
+                    })
+                })
+                .collect();
+
             serde_json::json!({
                 "name": g.name,
                 "status": format!("{:?}", g.status),
                 "node_count": g.nodes.len(),
                 "last_updated": g.last_updated,
                 "last_error": g.last_error,
+                "subscription": subscription,
+                "surge_policy_path": format!("http://{server_listen}/surge/group/{}", g.name),
+                "nodes": nodes,
             })
         })
         .collect();
@@ -135,6 +161,52 @@ pub async fn status(State(state): State<AppState>) -> Response {
         "groups": groups,
     }))
     .into_response()
+}
+
+/// POST /api/batch-delay/:name — test delay for all nodes in a group
+pub async fn batch_delay(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Response {
+    let inner = state.inner.read().await;
+    let node_names: Vec<String> = match inner.groups.get(&name) {
+        Some(g) => g.nodes.iter().map(|n| n.name.clone()).collect(),
+        None => {
+            return (StatusCode::NOT_FOUND, format!("group '{name}' not found\n")).into_response()
+        }
+    };
+    drop(inner);
+
+    let mihomo = state.config.mihomo.clone();
+    let mut set = tokio::task::JoinSet::new();
+    for node_name in node_names {
+        let mihomo = mihomo.clone();
+        set.spawn(async move {
+            let client = reqwest::Client::new();
+            let result = crate::mihomo_api::test_delay(&client, &mihomo, &node_name).await;
+            (node_name, result)
+        });
+    }
+
+    let mut results = serde_json::Map::new();
+    while let Some(res) = set.join_next().await {
+        match res {
+            Ok((node_name, Ok(val))) => {
+                results.insert(node_name, val);
+            }
+            Ok((node_name, Err(e))) => {
+                results.insert(
+                    node_name,
+                    serde_json::json!({ "message": e.to_string() }),
+                );
+            }
+            Err(e) => {
+                tracing::error!("batch delay task panicked: {e}");
+            }
+        }
+    }
+
+    axum::Json(serde_json::json!({ "results": results })).into_response()
 }
 
 /// GET /api/delay/:name — test delay for a node via mihomo

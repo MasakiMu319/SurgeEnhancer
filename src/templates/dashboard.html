@@ -1,39 +1,113 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Surge Enhancer</title>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
-        :root {
+        [data-theme="dark"] {
             --bg: #0f1117;
             --surface: #1a1c25;
             --border: #2a2d3a;
             --text: #e1e4ed;
             --text-dim: #8b8fa3;
             --accent: #6c7bf7;
+            --accent-hover: #5a6ae5;
             --green: #4ade80;
             --red: #f87171;
             --yellow: #fbbf24;
+            --gray: #6b7280;
+            --copy-bg: rgba(108,123,247,0.12);
+        }
+        [data-theme="light"] {
+            --bg: #f5f6fa;
+            --surface: #ffffff;
+            --border: #e2e4ea;
+            --text: #1a1c25;
+            --text-dim: #6b7280;
+            --accent: #4f5bd5;
+            --accent-hover: #434db8;
+            --green: #16a34a;
+            --red: #dc2626;
+            --yellow: #ca8a04;
+            --gray: #9ca3af;
+            --copy-bg: rgba(79,91,213,0.08);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { color-scheme: dark light; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
             padding: 2rem;
+            transition: background 0.2s, color 0.2s;
         }
-        h1 {
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        .header-title {
             font-size: 1.5rem;
             font-weight: 600;
-            margin-bottom: 1.5rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
-        h1 span { color: var(--accent); }
+        .header-title span { color: var(--accent); }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        /* Buttons */
+        button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.55rem 1.1rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s, opacity 0.15s;
+            font-family: inherit;
+        }
+        button:hover { background: var(--accent-hover); }
+        button:active { opacity: 0.85; }
+        button.secondary {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+        button.secondary:hover { border-color: var(--accent); color: var(--accent); background: var(--surface); }
+        button.small {
+            font-size: 0.75rem;
+            padding: 0.35rem 0.8rem;
+            border-radius: 6px;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .theme-toggle {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 0.5rem 0.7rem;
+            font-size: 1rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .theme-toggle:hover { border-color: var(--accent); }
+
+        /* Stats */
         .stats {
             display: flex;
             gap: 1rem;
@@ -45,85 +119,261 @@
             border-radius: 10px;
             padding: 1rem 1.5rem;
             flex: 1;
+            transition: background 0.2s, border-color 0.2s;
         }
-        .stat-card .label { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        .stat-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 0.25rem; }
-        .actions {
-            display: flex;
-            gap: 0.75rem;
-            margin-bottom: 1.5rem;
-        }
-        button {
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 0.6rem 1.2rem;
-            font-size: 0.85rem;
+        .stat-card .label {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
             font-weight: 500;
-            cursor: pointer;
-            transition: opacity 0.15s;
         }
-        button:hover { opacity: 0.85; }
-        button.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+        .stat-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 0.25rem; }
+
+        /* Groups */
         .groups { display: flex; flex-direction: column; gap: 1rem; }
         .group-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 10px;
             padding: 1.25rem;
+            transition: background 0.2s, border-color 0.2s;
         }
         .group-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
         }
         .group-name { font-weight: 600; font-size: 1.05rem; }
         .badge {
-            font-size: 0.7rem;
-            padding: 0.2rem 0.6rem;
+            font-size: 0.65rem;
+            padding: 0.2rem 0.55rem;
             border-radius: 999px;
             font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .badge.ok { background: rgba(74,222,128,0.15); color: var(--green); }
         .badge.error { background: rgba(248,113,113,0.15); color: var(--red); }
         .badge.pending { background: rgba(251,191,36,0.15); color: var(--yellow); }
-        .group-meta { color: var(--text-dim); font-size: 0.8rem; }
+        .group-meta {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 0.75rem;
+        }
         .group-meta span { margin-right: 1.5rem; }
-        .error-msg { color: var(--red); font-size: 0.8rem; margin-top: 0.5rem; }
-        #status-area { min-height: 100px; }
-        .htmx-indicator { display: none; }
-        .htmx-request .htmx-indicator { display: inline; }
+
+        /* URL rows */
+        .url-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.4rem;
+            font-size: 0.78rem;
+        }
+        .url-label {
+            color: var(--text-dim);
+            font-weight: 500;
+            white-space: nowrap;
+            min-width: 5.5rem;
+        }
+        .url-value {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text);
+            background: var(--copy-bg);
+            padding: 0.25rem 0.5rem;
+            border-radius: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            min-width: 0;
+        }
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 0.2rem 0.45rem;
+            border-radius: 5px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: color 0.15s, border-color 0.15s;
+            flex-shrink: 0;
+        }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); background: none; }
+        .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+        /* Button row */
+        .btn-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Nodes toggle */
+        .nodes-toggle {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            cursor: pointer;
+            padding: 0.3rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-family: inherit;
+        }
+        .nodes-toggle:hover { color: var(--text); background: none; }
+        .nodes-toggle .arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+            font-size: 0.65rem;
+        }
+        .nodes-toggle.expanded .arrow { transform: rotate(90deg); }
+
+        /* Node grid */
+        .nodes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .nodes-grid.hidden { display: none; }
+        .node-pill {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem 0.6rem;
+            font-size: 0.72rem;
+            transition: background 0.2s, border-color 0.2s;
+            overflow: hidden;
+        }
+        .node-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.2rem;
+            font-size: 0.7rem;
+        }
+        .node-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-dim);
+            font-size: 0.65rem;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        .node-port { color: var(--text-dim); }
+        .node-delay { font-weight: 600; }
+        .node-delay.green { color: var(--green); }
+        .node-delay.yellow { color: var(--yellow); }
+        .node-delay.red { color: var(--red); }
+        .node-delay.gray { color: var(--gray); }
+
+        /* Error */
+        .error-msg {
+            color: var(--red);
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(248,113,113,0.08);
+            border-radius: 6px;
+        }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block;
+            width: 0.8em;
+            height: 0.8em;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 0.3em;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Loading placeholder */
+        .loading-text { color: var(--text-dim); padding: 2rem 0; text-align: center; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            body { padding: 1rem; }
+            .header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+            .stats { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-    <h1>⚡ <span>Surge Enhancer</span></h1>
-
-    <div class="actions">
-        <button hx-post="/refresh" hx-swap="none" onclick="setTimeout(()=>htmx.trigger('#status-area','load'),1500)">
-            Refresh All
-        </button>
-        <button class="secondary" onclick="htmx.trigger('#status-area','load')">
-            Reload Status
-        </button>
+    <div class="header">
+        <div class="header-title">⚡ <span>Surge Enhancer</span></div>
+        <div class="header-actions">
+            <button class="theme-toggle" id="theme-toggle" title="Toggle theme">🌙</button>
+            <button id="refresh-all-btn">Refresh All</button>
+        </div>
     </div>
 
-    <div id="status-area" hx-get="/status" hx-trigger="load" hx-swap="innerHTML">
-        <p style="color: var(--text-dim)">Loading...</p>
+    <div id="status-area">
+        <p class="loading-text">Loading...</p>
     </div>
-
-    <template id="status-template"></template>
 
     <script>
-        document.body.addEventListener('htmx:afterRequest', function(e) {
-            if (e.detail.pathInfo.requestPath === '/status' && e.detail.successful) {
-                const data = JSON.parse(e.detail.xhr.responseText);
-                renderStatus(data);
-            }
+        // ── Theme System ──
+        const THEMES = ['system', 'light', 'dark'];
+        const THEME_ICONS = { system: '💻', light: '☀️', dark: '🌙' };
+
+        function getSystemTheme() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(pref) {
+            const resolved = pref === 'system' ? getSystemTheme() : pref;
+            document.documentElement.setAttribute('data-theme', resolved);
+            document.getElementById('theme-toggle').textContent = THEME_ICONS[pref];
+            document.getElementById('theme-toggle').title = `Theme: ${pref}`;
+        }
+
+        function initTheme() {
+            const stored = localStorage.getItem('theme') || 'system';
+            applyTheme(stored);
+        }
+
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const current = localStorage.getItem('theme') || 'system';
+            const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
+            localStorage.setItem('theme', next);
+            applyTheme(next);
         });
 
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            const pref = localStorage.getItem('theme') || 'system';
+            if (pref === 'system') applyTheme('system');
+        });
+
+        initTheme();
+
+        // ── State ──
+        let delayData = {};
+
+        // ── Fetch Status ──
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/status');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                renderStatus(data);
+            } catch (e) {
+                console.error('Failed to fetch status:', e);
+            }
+        }
+
+        // ── Render ──
         function renderStatus(data) {
             const area = document.getElementById('status-area');
             let html = `
@@ -143,35 +393,201 @@
             for (const g of data.groups) {
                 const statusClass = g.status.toLowerCase();
                 const updated = g.last_updated ? new Date(g.last_updated).toLocaleString() : 'never';
+                const subUrl = g.subscription || '';
+                const policyPath = g.surge_policy_path || `http://127.0.0.1:9300/surge/group/${encodeURIComponent(g.name)}`;
+                const collapsed = (g.nodes && g.nodes.length > 20);
+                const groupDelays = delayData[g.name] || {};
+
                 html += `
-                    <div class="group-card">
+                    <div class="group-card" data-group="${esc(g.name)}">
                         <div class="group-header">
-                            <span class="group-name">${g.name}</span>
-                            <span class="badge ${statusClass}">${g.status}</span>
+                            <span class="group-name">${esc(g.name)}</span>
+                            <span class="badge ${statusClass}">${esc(g.status)}</span>
                         </div>
                         <div class="group-meta">
                             <span>Nodes: ${g.node_count}</span>
-                            <span>Updated: ${updated}</span>
+                            <span>Updated: ${esc(updated)}</span>
                         </div>
-                        ${g.last_error ? `<div class="error-msg">${g.last_error}</div>` : ''}
-                        <div style="margin-top:0.75rem">
-                            <button class="secondary" style="font-size:0.75rem;padding:0.35rem 0.8rem"
-                                hx-post="/refresh/${g.name}" hx-swap="none"
-                                onclick="setTimeout(()=>htmx.trigger('#status-area','load'),1500)">
-                                Refresh
-                            </button>
+                `;
+
+                if (subUrl) {
+                    html += `
+                        <div class="url-row">
+                            <span class="url-label">Subscription</span>
+                            <span class="url-value" title="${esc(subUrl)}">${esc(subUrl)}</span>
+                            <button class="copy-btn" onclick="copyUrl(this, '${escJs(subUrl)}')">📋</button>
                         </div>
+                    `;
+                }
+
+                html += `
+                    <div class="url-row">
+                        <span class="url-label">Policy Path</span>
+                        <span class="url-value" title="${esc(policyPath)}">${esc(policyPath)}</span>
+                        <button class="copy-btn" onclick="copyUrl(this, '${escJs(policyPath)}')">📋</button>
                     </div>
                 `;
+
+                html += `
+                    <div class="btn-row">
+                        <button class="secondary small" onclick="refreshGroup('${escJs(g.name)}')">Refresh</button>
+                        <button class="secondary small delay-btn" data-group="${esc(g.name)}" onclick="testDelays('${escJs(g.name)}', this)">Test All Delays</button>
+                    </div>
+                `;
+
+                if (g.nodes && g.nodes.length > 0) {
+                    html += `
+                        <button class="nodes-toggle ${collapsed ? '' : 'expanded'}" onclick="toggleNodes(this)">
+                            <span class="arrow">▶</span> ${g.nodes.length} nodes
+                        </button>
+                        <div class="nodes-grid ${collapsed ? 'hidden' : ''}" data-nodes-group="${esc(g.name)}">
+                    `;
+                    for (const n of g.nodes) {
+                        const delay = groupDelays[n.name];
+                        const delayStr = delayDisplay(delay);
+                        const delayClass = delayColor(delay);
+                        html += `
+                            <div class="node-pill" data-node="${esc(n.name)}">
+                                <div class="node-name" title="${esc(n.name)}">${esc(n.name)}</div>
+                                <div class="node-info">
+                                    <span class="node-port">:${n.assigned_port || n.port}</span>
+                                    <span class="node-delay ${delayClass}">${delayStr}</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    html += `</div>`;
+                }
+
+                if (g.last_error) {
+                    html += `<div class="error-msg">${esc(g.last_error)}</div>`;
+                }
+
+                html += `</div>`;
             }
 
             html += '</div>';
             area.innerHTML = html;
-            htmx.process(area);
         }
 
-        // Auto-refresh every 30s
-        setInterval(() => htmx.trigger('#status-area', 'load'), 30000);
+        // ── Helpers ──
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
+        function escJs(s) {
+            return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function delayDisplay(delay) {
+            if (delay === undefined || delay === null) return '—';
+            if (delay < 0 || delay === 99999) return 'timeout';
+            return delay + 'ms';
+        }
+
+        function delayColor(delay) {
+            if (delay === undefined || delay === null) return 'gray';
+            if (delay < 0 || delay === 99999) return 'red';
+            if (delay <= 200) return 'green';
+            if (delay <= 500) return 'yellow';
+            return 'red';
+        }
+
+        // ── Copy URL ──
+        async function copyUrl(btn, url) {
+            try {
+                await navigator.clipboard.writeText(url);
+                const orig = btn.textContent;
+                btn.textContent = '✓';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = orig;
+                    btn.classList.remove('copied');
+                }, 1500);
+            } catch (e) {
+                console.error('Copy failed:', e);
+            }
+        }
+
+        // ── Refresh Group ──
+        async function refreshGroup(name) {
+            try {
+                await fetch(`/refresh/${encodeURIComponent(name)}`, { method: 'POST' });
+                setTimeout(fetchStatus, 1500);
+            } catch (e) {
+                console.error('Refresh failed:', e);
+            }
+        }
+
+        // ── Refresh All ──
+        document.getElementById('refresh-all-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('refresh-all-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Refreshing…';
+            try {
+                await fetch('/refresh', { method: 'POST' });
+                setTimeout(async () => {
+                    await fetchStatus();
+                    btn.disabled = false;
+                    btn.textContent = 'Refresh All';
+                }, 1500);
+            } catch (e) {
+                console.error('Refresh all failed:', e);
+                btn.disabled = false;
+                btn.textContent = 'Refresh All';
+            }
+        });
+
+        // ── Test Delays ──
+        async function testDelays(name, btn) {
+            btn.disabled = true;
+            const origText = btn.textContent;
+            btn.innerHTML = '<span class="spinner"></span>Testing…';
+            try {
+                const res = await fetch(`/api/batch-delay/${encodeURIComponent(name)}`, { method: 'POST' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const results = data.results || {};
+
+                if (!delayData[name]) delayData[name] = {};
+                for (const [nodeName, info] of Object.entries(results)) {
+                    delayData[name][nodeName] = info.delay;
+                }
+
+                const grid = document.querySelector(`[data-nodes-group="${CSS.escape(name)}"]`);
+                if (grid) {
+                    for (const [nodeName, info] of Object.entries(results)) {
+                        const pill = grid.querySelector(`[data-node="${CSS.escape(nodeName)}"]`);
+                        if (pill) {
+                            const delayEl = pill.querySelector('.node-delay');
+                            if (delayEl) {
+                                delayEl.textContent = delayDisplay(info.delay);
+                                delayEl.className = 'node-delay ' + delayColor(info.delay);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Delay test failed:', e);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = origText;
+            }
+        }
+
+        // ── Toggle Nodes ──
+        function toggleNodes(btn) {
+            const grid = btn.nextElementSibling;
+            if (!grid) return;
+            const expanded = btn.classList.toggle('expanded');
+            grid.classList.toggle('hidden', !expanded);
+        }
+
+        // ── Init ──
+        fetchStatus();
+        setInterval(fetchStatus, 30000);
     </script>
 </body>
 </html>
