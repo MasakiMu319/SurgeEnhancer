@@ -18,6 +18,7 @@ pub struct AppState {
 pub struct AppStateInner {
     pub groups: IndexMap<String, GroupState>,
     pub port_map: HashMap<String, u16>,
+    #[allow(dead_code)]
     pub mihomo_health: HashMap<String, NodeHealth>,
 }
 

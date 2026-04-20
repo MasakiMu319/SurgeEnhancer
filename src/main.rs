@@ -11,7 +11,7 @@ mod state;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
         .route("/status", get(server::api::status))
         .route("/api/delay/{name}", get(server::api::test_delay))
         .route("/api/batch-delay/{name}", post(server::api::batch_delay))
+        .route("/api/tcp-ping/{name}", post(server::api::tcp_ping_group))
         .route("/api/groups", post(server::api::add_group))
         .route(
             "/api/groups/{name}",

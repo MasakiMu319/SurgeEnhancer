@@ -27,6 +27,7 @@ pub async fn reload_config(client: &reqwest::Client, mihomo: &MihomoConfig) -> R
 }
 
 /// Fetch proxy status from mihomo.
+#[allow(dead_code)]
 #[tracing::instrument(skip_all)]
 pub async fn get_proxies(
     client: &reqwest::Client,
