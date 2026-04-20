@@ -4,4 +4,5 @@
 .DS_Store
 config.yaml
 mihomo_output.yaml
+mihomo_template.yaml
 .codex-skill-work/
