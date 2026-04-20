@@ -12,6 +12,7 @@ pub enum NodeType {
     Trojan,
     Hysteria2,
     Tuic,
+    Anytls,
     Unknown(String),
 }
 
@@ -25,6 +26,7 @@ impl std::fmt::Display for NodeType {
             NodeType::Trojan => write!(f, "trojan"),
             NodeType::Hysteria2 => write!(f, "hysteria2"),
             NodeType::Tuic => write!(f, "tuic"),
+            NodeType::Anytls => write!(f, "anytls"),
             NodeType::Unknown(s) => write!(f, "{s}"),
         }
     }

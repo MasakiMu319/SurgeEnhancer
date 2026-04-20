@@ -37,6 +37,7 @@ pub fn parse_clash_yaml(body: &str, group: &str) -> Result<Vec<ProxyNode>> {
             "trojan" => NodeType::Trojan,
             "hysteria2" => NodeType::Hysteria2,
             "tuic" => NodeType::Tuic,
+            "anytls" => NodeType::Anytls,
             other => NodeType::Unknown(other.to_string()),
         };
 
