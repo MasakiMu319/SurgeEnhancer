@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Surge Enhancer</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1c25;
+            --border: #2a2d3a;
+            --text: #e1e4ed;
+            --text-dim: #8b8fa3;
+            --accent: #6c7bf7;
+            --green: #4ade80;
+            --red: #f87171;
+            --yellow: #fbbf24;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        h1 span { color: var(--accent); }
+        .stats {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem 1.5rem;
+            flex: 1;
+        }
+        .stat-card .label { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 0.25rem; }
+        .actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.6rem 1.2rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        button:hover { opacity: 0.85; }
+        button.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+        .groups { display: flex; flex-direction: column; gap: 1rem; }
+        .group-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+        }
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .group-name { font-weight: 600; font-size: 1.05rem; }
+        .badge {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge.ok { background: rgba(74,222,128,0.15); color: var(--green); }
+        .badge.error { background: rgba(248,113,113,0.15); color: var(--red); }
+        .badge.pending { background: rgba(251,191,36,0.15); color: var(--yellow); }
+        .group-meta { color: var(--text-dim); font-size: 0.8rem; }
+        .group-meta span { margin-right: 1.5rem; }
+        .error-msg { color: var(--red); font-size: 0.8rem; margin-top: 0.5rem; }
+        #status-area { min-height: 100px; }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline; }
+    </style>
+</head>
+<body>
+    <h1>⚡ <span>Surge Enhancer</span></h1>
+
+    <div class="actions">
+        <button hx-post="/refresh" hx-swap="none" onclick="setTimeout(()=>htmx.trigger('#status-area','load'),1500)">
+            Refresh All
+        </button>
+        <button class="secondary" onclick="htmx.trigger('#status-area','load')">
+            Reload Status
+        </button>
+    </div>
+
+    <div id="status-area" hx-get="/status" hx-trigger="load" hx-swap="innerHTML">
+        <p style="color: var(--text-dim)">Loading...</p>
+    </div>
+
+    <template id="status-template"></template>
+
+    <script>
+        document.body.addEventListener('htmx:afterRequest', function(e) {
+            if (e.detail.pathInfo.requestPath === '/status' && e.detail.successful) {
+                const data = JSON.parse(e.detail.xhr.responseText);
+                renderStatus(data);
+            }
+        });
+
+        function renderStatus(data) {
+            const area = document.getElementById('status-area');
+            let html = `
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="label">Total Nodes</div>
+                        <div class="value">${data.total_nodes}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Groups</div>
+                        <div class="value">${data.groups.length}</div>
+                    </div>
+                </div>
+                <div class="groups">
+            `;
+
+            for (const g of data.groups) {
+                const statusClass = g.status.toLowerCase();
+                const updated = g.last_updated ? new Date(g.last_updated).toLocaleString() : 'never';
+                html += `
+                    <div class="group-card">
+                        <div class="group-header">
+                            <span class="group-name">${g.name}</span>
+                            <span class="badge ${statusClass}">${g.status}</span>
+                        </div>
+                        <div class="group-meta">
+                            <span>Nodes: ${g.node_count}</span>
+                            <span>Updated: ${updated}</span>
+                        </div>
+                        ${g.last_error ? `<div class="error-msg">${g.last_error}</div>` : ''}
+                        <div style="margin-top:0.75rem">
+                            <button class="secondary" style="font-size:0.75rem;padding:0.35rem 0.8rem"
+                                hx-post="/refresh/${g.name}" hx-swap="none"
+                                onclick="setTimeout(()=>htmx.trigger('#status-area','load'),1500)">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            area.innerHTML = html;
+            htmx.process(area);
+        }
+
+        // Auto-refresh every 30s
+        setInterval(() => htmx.trigger('#status-area', 'load'), 30000);
+    </script>
+</body>
+</html>

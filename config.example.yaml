@@ -1,0 +1,24 @@
+server:
+  listen: "127.0.0.1:9300"
+  log_level: "info"
+
+mihomo:
+  template: "./mihomo_template.yaml"
+  output: "./mihomo_output.yaml"
+  api: "http://127.0.0.1:9090"
+  # api_secret: "your-secret"
+
+port:
+  range_start: 10001
+  listen_addr: "127.0.0.1"
+
+groups:
+  - name: "ProviderA"
+    subscription: "https://example.com/sub?token=xxx"
+    update_interval: 3600
+    # filter: "HK|TW|JP"
+    # exclude_filter: "剩余|到期"
+
+  # - name: "ProviderB"
+  #   file: "./local_nodes.yaml"
+  #   update_interval: 86400
