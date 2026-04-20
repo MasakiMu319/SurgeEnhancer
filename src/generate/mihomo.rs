@@ -94,6 +94,7 @@ fn node_to_mihomo_listener(node: &ProxyNode, listen_addr: &str) -> Value {
         Value::String("listen".into()),
         Value::String(listen_addr.to_string()),
     );
+    map.insert(Value::String("udp".into()), Value::Bool(true));
     map.insert(
         Value::String("proxy".into()),
         Value::String(node.name.clone()),
