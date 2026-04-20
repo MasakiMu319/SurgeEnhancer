@@ -11,7 +11,7 @@ mod state;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
         "surge-enhancer starting"
     );
 
-    let state = state::AppState::new(app_config);
+    let state = state::AppState::new(app_config, cli.config.clone());
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -69,13 +69,19 @@ async fn main() -> Result<()> {
         .route("/status", get(server::api::status))
         .route("/api/delay/{name}", get(server::api::test_delay))
         .route("/api/batch-delay/{name}", post(server::api::batch_delay))
+        .route("/api/groups", post(server::api::add_group))
+        .route(
+            "/api/groups/{name}",
+            put(server::api::update_group).delete(server::api::delete_group),
+        )
         .with_state(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(&state.config.server.listen)
+    let listen_addr = state.config.read().await.server.listen.clone();
+    let listener = tokio::net::TcpListener::bind(&listen_addr)
         .await
-        .with_context(|| format!("binding to {}", state.config.server.listen))?;
+        .with_context(|| format!("binding to {listen_addr}"))?;
 
-    tracing::info!(addr = %state.config.server.listen, "HTTP server listening");
+    tracing::info!(addr = %listen_addr, "HTTP server listening");
     axum::serve(listener, app).await.context("axum server error")?;
 
     Ok(())

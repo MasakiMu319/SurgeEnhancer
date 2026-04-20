@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use chrono::Utc;
 use tokio::time::{self, Duration};
 
@@ -11,17 +9,27 @@ use crate::model::GroupStatus;
 use crate::port;
 use crate::state::AppState;
 
+/// Spawn a single background refresh task for a newly added group.
+pub fn spawn_single_refresh_task(state: AppState, group_cfg: GroupConfig) {
+    let client = reqwest::Client::new();
+    tokio::spawn(async move {
+        refresh_loop(state, client, group_cfg).await;
+    });
+}
+
 /// Spawn background tasks that periodically refresh each subscription group.
 pub fn spawn_refresh_tasks(state: AppState, client: reqwest::Client) {
-    let config = Arc::clone(&state.config);
-    for group_cfg in &config.groups {
-        let state = state.clone();
-        let client = client.clone();
-        let group_cfg = group_cfg.clone();
-        tokio::spawn(async move {
-            refresh_loop(state, client, group_cfg).await;
-        });
-    }
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        let config = state_clone.config.read().await.clone();
+        for group_cfg in config.groups {
+            let state = state_clone.clone();
+            let client = client.clone();
+            tokio::spawn(async move {
+                refresh_loop(state, client, group_cfg).await;
+            });
+        }
+    });
 }
 
 async fn refresh_loop(state: AppState, client: reqwest::Client, group_cfg: GroupConfig) {
@@ -43,6 +51,9 @@ async fn refresh_loop(state: AppState, client: reqwest::Client, group_cfg: Group
 /// Perform a single refresh for one group: fetch, parse, assign ports, regenerate configs.
 #[tracing::instrument(skip_all, fields(group = %group_cfg.name))]
 pub async fn do_refresh(state: &AppState, client: &reqwest::Client, group_cfg: &GroupConfig) {
+    // Read config before acquiring inner lock to avoid deadlocks
+    let config = state.config.read().await.clone();
+
     match fetcher::fetch_group(client, group_cfg).await {
         Ok(mut nodes) => {
             let mut inner = state.inner.write().await;
@@ -58,7 +69,7 @@ pub async fn do_refresh(state: &AppState, client: &reqwest::Client, group_cfg: &
             // Assign ports (merge into global port_map)
             let new_entries = port::assign_ports(
                 &mut nodes,
-                state.config.port.range_start,
+                config.port.range_start,
                 &inner.port_map,
             );
 
@@ -83,12 +94,12 @@ pub async fn do_refresh(state: &AppState, client: &reqwest::Client, group_cfg: &
                 .collect();
             drop(inner);
 
-            if let Err(e) = generate::regenerate(&state.config, &all_nodes).await {
+            if let Err(e) = generate::regenerate(&config, &all_nodes).await {
                 tracing::error!(error = %e, "failed to regenerate configs");
             }
 
             // Reload mihomo
-            if let Err(e) = mihomo_api::reload_config(client, &state.config.mihomo).await {
+            if let Err(e) = mihomo_api::reload_config(client, &config.mihomo).await {
                 tracing::warn!(error = %e, "failed to reload mihomo (may not be running)");
             }
         }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -10,7 +11,8 @@ use crate::model::{GroupState, NodeHealth};
 #[derive(Clone)]
 pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
-    pub config: Arc<AppConfig>,
+    pub config: Arc<RwLock<AppConfig>>,
+    pub config_path: PathBuf,
 }
 
 pub struct AppStateInner {
@@ -20,7 +22,7 @@ pub struct AppStateInner {
 }
 
 impl AppState {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, config_path: PathBuf) -> Self {
         let mut groups = IndexMap::new();
         for g in &config.groups {
             groups.insert(g.name.clone(), GroupState::new(g.name.clone()));
@@ -31,7 +33,8 @@ impl AppState {
                 port_map: HashMap::new(),
                 mihomo_health: HashMap::new(),
             })),
-            config: Arc::new(config),
+            config: Arc::new(RwLock::new(config)),
+            config_path,
         }
     }
 }

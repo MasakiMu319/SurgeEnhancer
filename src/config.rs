@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub mihomo: MihomoConfig,
@@ -11,7 +11,7 @@ pub struct AppConfig {
     pub groups: Vec<GroupConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub listen: String,
     #[serde(default = "default_log_level")]
@@ -22,7 +22,7 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MihomoConfig {
     pub template: PathBuf,
     pub output: PathBuf,
@@ -31,7 +31,7 @@ pub struct MihomoConfig {
     pub api_secret: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PortConfig {
     pub range_start: u16,
     #[serde(default = "default_listen_addr")]
@@ -42,7 +42,7 @@ fn default_listen_addr() -> String {
     "127.0.0.1".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GroupConfig {
     pub name: String,
     #[serde(default)]
@@ -71,8 +71,16 @@ impl AppConfig {
         Ok(config)
     }
 
+    pub fn save(&self, path: &PathBuf) -> Result<()> {
+        let content = serde_yml::to_string(self).context("serializing config")?;
+        std::fs::write(path, content).with_context(|| format!("writing config: {path:?}"))?;
+        Ok(())
+    }
+
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(!self.groups.is_empty(), "at least one group must be defined");
+        if self.groups.is_empty() {
+            tracing::warn!("no groups defined in config");
+        }
         for g in &self.groups {
             anyhow::ensure!(
                 g.subscription.is_some() || g.file.is_some(),

@@ -302,11 +302,132 @@
         /* Loading placeholder */
         .loading-text { color: var(--text-dim); padding: 2rem 0; text-align: center; }
 
+        /* Delete button */
+        .delete-btn {
+            background: none;
+            border: none;
+            color: var(--red);
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            line-height: 1;
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        .delete-btn:hover { opacity: 1; background: rgba(248,113,113,0.12); }
+
+        /* Edit button */
+        .edit-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 0.2rem 0.45rem;
+            border-radius: 5px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: color 0.15s, border-color 0.15s;
+            flex-shrink: 0;
+        }
+        .edit-btn:hover { color: var(--accent); border-color: var(--accent); background: none; }
+
+        /* Inline edit */
+        .inline-edit {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            flex: 1;
+            min-width: 0;
+        }
+        .inline-edit input {
+            flex: 1;
+            min-width: 0;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.72rem;
+            padding: 0.25rem 0.5rem;
+            border: 1px solid var(--accent);
+            border-radius: 5px;
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+        }
+        .inline-edit button {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.55rem;
+            border-radius: 5px;
+        }
+        .inline-edit .cancel-btn {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+        .inline-edit .cancel-btn:hover { border-color: var(--accent); color: var(--text); }
+
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .modal-card h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        .modal-field {
+            margin-bottom: 0.85rem;
+        }
+        .modal-field label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            margin-bottom: 0.3rem;
+        }
+        .modal-field input {
+            width: 100%;
+            padding: 0.5rem 0.65rem;
+            font-size: 0.85rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .modal-field input:focus { border-color: var(--accent); }
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1.1rem;
+        }
+
         /* Responsive */
         @media (max-width: 600px) {
             body { padding: 1rem; }
             .header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
             .stats { flex-direction: column; }
+            .modal-card { margin: 1rem; }
         }
     </style>
 </head>
@@ -316,11 +437,37 @@
         <div class="header-actions">
             <button class="theme-toggle" id="theme-toggle" title="Toggle theme">🌙</button>
             <button id="refresh-all-btn">Refresh All</button>
+            <button id="add-group-btn">+ Add Group</button>
         </div>
     </div>
 
     <div id="status-area">
         <p class="loading-text">Loading...</p>
+    </div>
+
+    <!-- Add Group Modal -->
+    <div class="modal-overlay" id="add-group-modal">
+        <div class="modal-card">
+            <h3>Add Group</h3>
+            <form id="add-group-form">
+                <div class="modal-field">
+                    <label for="ag-name">Name *</label>
+                    <input type="text" id="ag-name" required placeholder="e.g. HK-Nodes">
+                </div>
+                <div class="modal-field">
+                    <label for="ag-sub">Subscription URL</label>
+                    <input type="text" id="ag-sub" placeholder="https://example.com/sub">
+                </div>
+                <div class="modal-field">
+                    <label for="ag-interval">Update Interval (seconds)</label>
+                    <input type="number" id="ag-interval" value="3600" min="0">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="secondary" onclick="closeAddGroupModal()">Cancel</button>
+                    <button type="submit">Add Group</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>
@@ -402,7 +549,10 @@
                     <div class="group-card" data-group="${esc(g.name)}">
                         <div class="group-header">
                             <span class="group-name">${esc(g.name)}</span>
-                            <span class="badge ${statusClass}">${esc(g.status)}</span>
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <span class="badge ${statusClass}">${esc(g.status)}</span>
+                                <button class="delete-btn" title="Delete group" onclick="deleteGroup('${escJs(g.name)}')">✕</button>
+                            </div>
                         </div>
                         <div class="group-meta">
                             <span>Nodes: ${g.node_count}</span>
@@ -412,10 +562,19 @@
 
                 if (subUrl) {
                     html += `
-                        <div class="url-row">
+                        <div class="url-row" data-sub-row="${esc(g.name)}">
                             <span class="url-label">Subscription</span>
                             <span class="url-value" title="${esc(subUrl)}">${esc(subUrl)}</span>
                             <button class="copy-btn" onclick="copyUrl(this, '${escJs(subUrl)}')">📋</button>
+                            <button class="edit-btn" onclick="startEditSub('${escJs(g.name)}', '${escJs(subUrl)}')">✏️</button>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="url-row" data-sub-row="${esc(g.name)}">
+                            <span class="url-label">Subscription</span>
+                            <span class="url-value" style="color:var(--text-dim);font-style:italic">None</span>
+                            <button class="edit-btn" onclick="startEditSub('${escJs(g.name)}', '')">✏️</button>
                         </div>
                     `;
                 }
@@ -583,6 +742,108 @@
             if (!grid) return;
             const expanded = btn.classList.toggle('expanded');
             grid.classList.toggle('hidden', !expanded);
+        }
+
+        // ── Add Group Modal ──
+        const addGroupModal = document.getElementById('add-group-modal');
+        const addGroupForm = document.getElementById('add-group-form');
+
+        document.getElementById('add-group-btn').addEventListener('click', () => {
+            addGroupModal.classList.add('active');
+            document.getElementById('ag-name').focus();
+        });
+
+        function closeAddGroupModal() {
+            addGroupModal.classList.remove('active');
+            addGroupForm.reset();
+            document.getElementById('ag-interval').value = '3600';
+        }
+
+        addGroupModal.addEventListener('click', (e) => {
+            if (e.target === addGroupModal) closeAddGroupModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && addGroupModal.classList.contains('active')) {
+                closeAddGroupModal();
+            }
+        });
+
+        addGroupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('ag-name').value.trim();
+            if (!name) return;
+            const body = {
+                name,
+                subscription: document.getElementById('ag-sub').value.trim(),
+                update_interval: parseInt(document.getElementById('ag-interval').value) || 3600,
+            };
+            try {
+                const res = await fetch('/api/groups', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                closeAddGroupModal();
+                await fetchStatus();
+            } catch (e) {
+                console.error('Add group failed:', e);
+                alert('Failed to add group: ' + e.message);
+            }
+        });
+
+        // ── Delete Group ──
+        async function deleteGroup(name) {
+            if (!confirm(`Delete group "${name}"? This cannot be undone.`)) return;
+            try {
+                const res = await fetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                await fetchStatus();
+            } catch (e) {
+                console.error('Delete group failed:', e);
+                alert('Failed to delete group: ' + e.message);
+            }
+        }
+
+        // ── Edit Subscription URL ──
+        function startEditSub(groupName, currentUrl) {
+            const row = document.querySelector(`[data-sub-row="${CSS.escape(groupName)}"]`);
+            if (!row) return;
+            row.innerHTML = `
+                <span class="url-label">Subscription</span>
+                <div class="inline-edit">
+                    <input type="text" value="${esc(currentUrl)}" placeholder="https://example.com/sub" id="edit-sub-input-${CSS.escape(groupName)}">
+                    <button onclick="saveSub('${escJs(groupName)}')">Save</button>
+                    <button class="cancel-btn" onclick="fetchStatus()">Cancel</button>
+                </div>
+            `;
+            const input = row.querySelector('input');
+            input.focus();
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); saveSub(groupName); }
+                if (e.key === 'Escape') fetchStatus();
+            });
+        }
+
+        async function saveSub(groupName) {
+            const row = document.querySelector(`[data-sub-row="${CSS.escape(groupName)}"]`);
+            if (!row) return;
+            const input = row.querySelector('input');
+            if (!input) return;
+            const newUrl = input.value.trim();
+            try {
+                const res = await fetch(`/api/groups/${encodeURIComponent(groupName)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: newUrl }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                await fetchStatus();
+            } catch (e) {
+                console.error('Update subscription failed:', e);
+                alert('Failed to update subscription: ' + e.message);
+            }
         }
 
         // ── Init ──
