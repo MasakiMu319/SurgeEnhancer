@@ -22,8 +22,8 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.link_libc = true;
-    exe.root_module.linkSystemLibrary("yaml", .{});
-    exe.root_module.linkSystemLibrary("pcre2-8", .{});
+    exe.root_module.linkSystemLibrary("yaml", .{ .preferred_link_mode = .static });
+    exe.root_module.linkSystemLibrary("pcre2-8", .{ .preferred_link_mode = .static });
 
     b.installArtifact(exe);
 
