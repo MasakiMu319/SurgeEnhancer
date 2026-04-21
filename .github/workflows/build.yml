@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  rust:
-    name: Rust
+  build:
+    name: Build Check
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,16 +16,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
       - run: cargo test
-
-  zig:
-    name: Zig
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-      - name: Install dependencies
-        run: brew install libyaml pcre2
+      - run: brew install libyaml pcre2
       - run: zig build -Doptimize=ReleaseFast
         working-directory: zig
