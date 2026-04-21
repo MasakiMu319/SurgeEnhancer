@@ -4,7 +4,8 @@ server:
 
 mihomo:
   template: "./mihomo_template.yaml"
-  output: "./mihomo_output.yaml"
+  # Must be under ~/.config/mihomo/ for reload API to work
+  output: "~/.config/mihomo/mihomo_output.yaml"
   api: "http://127.0.0.1:9090"
   # api_secret: "your-secret"
 
