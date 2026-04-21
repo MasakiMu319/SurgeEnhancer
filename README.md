@@ -20,6 +20,21 @@ Surge → (socks5) → Mihomo (127.0.0.1:PORT) → (ss/vmess/...) → Remote Ser
 - **Scheduled refresh** — periodically re-fetches subscriptions and reloads mihomo
 - **Regex filtering** — include/exclude nodes by name pattern per group
 
+## Prerequisites
+
+- [Mihomo](https://github.com/MetaCubeX/mihomo) installed and available in `PATH`
+
+## Install
+
+```bash
+# From source
+cargo install --path .
+
+# Or build manually
+cargo build --release
+# Binary at ./target/release/surge-enhancer
+```
+
 ## Quick Start
 
 1. Create `config.yaml` (see `config.example.yaml`)
