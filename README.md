@@ -24,21 +24,18 @@ Surge → (socks5) → Mihomo (127.0.0.1:PORT) → (ss/vmess/...) → Remote Ser
 
 1. Create `config.yaml` (see `config.example.yaml`)
 2. Prepare a mihomo template YAML with your DNS/rules
-3. Run: `cargo run -- -c config.yaml`
+3. Run:
+
+```bash
+# Default config path: config.yaml
+surge-enhancer
+
+# Or specify a custom config
+surge-enhancer -c /path/to/config.yaml
+```
+
 4. Point Surge to `http://127.0.0.1:9300/surge/group/YourGroup`
-
-## HTTP Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | HTMX dashboard |
-| GET | `/surge/proxies` | All nodes as Surge proxy list |
-| GET | `/surge/group/:name` | Specific group's nodes |
-| GET | `/surge/config` | Full Surge `[Proxy]` + `[Proxy Group]` snippet |
-| POST | `/refresh` | Trigger refresh for all groups |
-| POST | `/refresh/:name` | Trigger refresh for one group |
-| GET | `/status` | JSON status (for dashboard) |
-| GET | `/api/delay/:name` | Test node delay via mihomo |
+5. Open `http://127.0.0.1:9300` for the HTMX dashboard
 
 ## License
 
