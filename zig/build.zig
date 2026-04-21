@@ -25,11 +25,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkSystemLibrary("yaml", .{});
     exe.root_module.linkSystemLibrary("pcre2-8", .{});
 
-    exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/libyaml/0.2.5/include" });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/libyaml/0.2.5/lib" });
-    exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/pcre2/10.47_1/include" });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/pcre2/10.47_1/lib" });
-
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
