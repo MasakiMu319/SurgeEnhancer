@@ -55,7 +55,6 @@ pub async fn fetch_group(client: &reqwest::Client, group_cfg: &GroupConfig) -> R
         {
             Ok(resp) => {
                 let text = resp.text().await.context("reading response body")?;
-                save_cache(&group_cfg.name, &text).await;
                 text
             }
             Err(e) => {
@@ -75,6 +74,11 @@ pub async fn fetch_group(client: &reqwest::Client, group_cfg: &GroupConfig) -> R
 
     let mut nodes = parse::parse_subscription(&body, &group_cfg.name)?;
     tracing::info!(count = nodes.len(), "parsed nodes before filtering");
+
+    // Cache only after successful parse
+    if group_cfg.subscription.is_some() {
+        save_cache(&group_cfg.name, &body).await;
+    }
 
     // Apply include filter
     if let Some(ref pattern) = group_cfg.filter {

@@ -24,7 +24,6 @@ pub fn fetchGroup(
             std.log.warn("fetch failed for '{s}': {s}, trying cache", .{ group.name, @errorName(err) });
             break :blk loadCache(gpa, io, group.name) orelse return err;
         };
-        saveCache(gpa, io, group.name, fetched);
         break :blk fetched;
     } else if (group.file) |path| blk: {
         std.log.info("reading local file: {s}", .{path});
@@ -44,6 +43,9 @@ pub fn fetchGroup(
         for (nodes) |*n| n.deinit(gpa);
         gpa.free(nodes);
     }
+
+    // Cache only after successful parse
+    if (group.subscription != null) saveCache(gpa, io, group.name, body);
 
     // Apply filters
     if (group.filter) |pattern| {
