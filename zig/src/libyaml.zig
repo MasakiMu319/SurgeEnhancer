@@ -99,27 +99,3 @@ pub fn findProxiesSequence(parser: *Parser) !void {
         ev.deinit();
     }
 }
-
-/// Skip events until after the next mapping_end at the current level.
-pub fn skipMapping(parser: *Parser) !void {
-    var depth: usize = 1;
-    while (depth > 0) {
-        var ev = try parser.nextEvent();
-        const et = ev.eventType();
-        if (et == .mapping_start) depth += 1;
-        if (et == .mapping_end) depth -= 1;
-        ev.deinit();
-    }
-}
-
-/// Read the next scalar value from the parser.
-pub fn nextScalar(parser: *Parser) ![]const u8 {
-    var ev = try parser.nextEvent();
-    if (ev.eventType() != .scalar) {
-        ev.deinit();
-        return error.ExpectedScalar;
-    }
-    const val = ev.scalarValue();
-    ev.deinit();
-    return val;
-}

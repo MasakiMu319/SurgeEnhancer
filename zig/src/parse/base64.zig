@@ -123,8 +123,8 @@ fn parseVmess(gpa: std.mem.Allocator, rest: []const u8, group: []const u8) !mode
     defer parsed.deinit();
     const json = parsed.value;
 
-    const name = jsonStr(&json, "ps") orelse jsonStr(&json, "remarks") orelse try gpa.dupe(u8, "unnamed");
-    defer if (jsonStr(&json, "ps") != null) gpa.free(name);
+    const raw_name = jsonStr(&json, "ps") orelse jsonStr(&json, "remarks") orelse "unnamed";
+    const name = try gpa.dupe(u8, raw_name);
     const server = jsonStr(&json, "add") orelse "";
     const port: u16 = blk: {
         if (json.object.get("port")) |p| {

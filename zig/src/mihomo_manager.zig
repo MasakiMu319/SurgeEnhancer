@@ -1,40 +1,40 @@
 const std = @import("std");
 const config = @import("config.zig");
 const model = @import("model.zig");
+const state = @import("state.zig");
 const mihomo_api = @import("mihomo_api.zig");
 
 pub const MihomoManager = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
-    state: model.MihomoState,
+    shared_state: *model.MihomoState,
+    lock: *state.ThreadRwLock,
     mihomo_config: config.MihomoConfig,
 
-    pub fn init(io: std.Io, gpa: std.mem.Allocator, mcfg: config.MihomoConfig) MihomoManager {
+    pub fn init(io: std.Io, gpa: std.mem.Allocator, mcfg: config.MihomoConfig, shared_state: *model.MihomoState, lock: *state.ThreadRwLock) MihomoManager {
         return .{
             .gpa = gpa,
             .io = io,
-            .state = .{},
+            .shared_state = shared_state,
+            .lock = lock,
             .mihomo_config = mcfg,
         };
     }
 
-    pub fn deinit(self: *MihomoManager) void {
-        self.state.deinit(self.gpa);
+    fn updateState(self: *MihomoManager, s: model.MihomoStatus, pid: ?u32, last_error: ?[]const u8, inc_restarts: bool) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+        if (self.shared_state.last_error) |e| self.gpa.free(e);
+        self.shared_state.status = s;
+        if (pid) |p| self.shared_state.pid = p;
+        self.shared_state.last_error = last_error;
+        if (inc_restarts) self.shared_state.restarts += 1;
     }
 
-    pub fn findBinary(gpa: std.mem.Allocator, io: std.Io) ?[]const u8 {
-        const result = std.process.run(gpa, io, .{
-            .argv = &.{ "which", "mihomo" },
-        }) catch return null;
-        defer {
-            gpa.free(result.stdout);
-            gpa.free(result.stderr);
-        }
-        if (result.term == .exited and result.term.exited == 0) {
-            const trimmed = std.mem.trim(u8, result.stdout, " \t\r\n");
-            if (trimmed.len > 0) return trimmed;
-        }
-        return null;
+    fn clearPid(self: *MihomoManager) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+        self.shared_state.pid = null;
     }
 
     pub fn run(self: *MihomoManager) void {
@@ -44,23 +44,22 @@ pub const MihomoManager = struct {
         while (true) {
             if (self.isApiAlive()) {
                 std.log.info("mihomo API already reachable", .{});
-                self.state.status = .running;
-                self.state.last_error = null;
+                self.updateState(.running, null, null, false);
                 self.healthLoop(HEALTH_INTERVAL);
                 std.log.warn("mihomo API lost, will attempt restart", .{});
             }
 
-            self.state.status = .starting;
+            self.updateState(.starting, null, null, false);
             var child = self.startProcess() catch |err| {
                 std.log.err("failed to start mihomo: {s}", .{@errorName(err)});
-                self.state.status = .crashed;
-                self.state.last_error = std.fmt.allocPrint(self.gpa, "{s}", .{@errorName(err)}) catch null;
+                self.updateState(.crashed, null, std.fmt.allocPrint(self.gpa, "{s}", .{@errorName(err)}) catch null, false);
                 io.sleep(std.Io.Duration.fromSeconds(5), .real) catch break;
                 continue;
             };
 
-            self.state.pid = @intCast(child.id orelse 0);
-            std.log.info("mihomo process started pid={?}", .{child.id});
+            const pid: u32 = @intCast(child.id orelse 0);
+            std.log.info("mihomo process started pid={d}", .{pid});
+            self.updateState(.starting, pid, null, false);
 
             // Wait for API to come up
             io.sleep(std.Io.Duration.fromSeconds(3), .real) catch break;
@@ -76,21 +75,18 @@ pub const MihomoManager = struct {
 
             if (api_up) {
                 std.log.info("mihomo API is up", .{});
-                self.state.status = .running;
-                self.state.last_error = null;
+                self.updateState(.running, null, null, false);
             } else {
                 std.log.warn("mihomo started but API not responding", .{});
-                self.state.status = .running;
-                self.state.last_error = std.fmt.allocPrint(self.gpa, "API not responding after start", .{}) catch null;
+                self.updateState(.running, null, std.fmt.allocPrint(self.gpa, "API not responding after start", .{}) catch null, false);
             }
 
             // Monitor: block until child exits
             self.monitorLoop(&child, HEALTH_INTERVAL);
 
-            self.state.status = .crashed;
-            self.state.pid = null;
-            self.state.restarts += 1;
-            std.log.warn("mihomo exited, restarts={d}", .{self.state.restarts});
+            self.updateState(.crashed, null, null, true);
+            self.clearPid();
+            std.log.warn("mihomo exited, restarts={d}", .{self.shared_state.restarts});
             io.sleep(std.Io.Duration.fromSeconds(5), .real) catch break;
         }
     }
@@ -104,8 +100,8 @@ pub const MihomoManager = struct {
         defer client.deinit();
 
         var req = client.request(.GET, std.Uri.parse(full) catch return false, .{}) catch return false;
+        var buf: [256]u8 = undefined;
         if (self.mihomo_config.api_secret) |secret| {
-            var buf: [256]u8 = undefined;
             const auth = std.fmt.bufPrint(&buf, "Bearer {s}", .{secret}) catch return false;
             req.headers.authorization = .{ .override = auth };
         }
@@ -120,7 +116,7 @@ pub const MihomoManager = struct {
         return std.process.spawn(self.io, .{
             .argv = &.{ "mihomo", "-f", self.mihomo_config.output },
             .stdout = .ignore,
-            .stderr = .pipe,
+            .stderr = .ignore,
         });
     }
 
@@ -139,7 +135,7 @@ pub const MihomoManager = struct {
                     if (failures >= 3) {
                         std.log.err("mihomo unresponsive, killing process", .{});
                         child.kill(io);
-                        self.state.last_error = std.fmt.allocPrint(self.gpa, "killed: API unreachable", .{}) catch null;
+                        self.updateState(.crashed, null, std.fmt.allocPrint(self.gpa, "killed: API unreachable", .{}) catch null, false);
                         return;
                     }
                 }
@@ -150,7 +146,7 @@ pub const MihomoManager = struct {
                 io.sleep(std.Io.Duration.fromSeconds(1), .real) catch return;
                 continue;
             };
-            self.state.last_error = std.fmt.allocPrint(self.gpa, "process exited: {}", .{term}) catch null;
+            self.updateState(.crashed, null, std.fmt.allocPrint(self.gpa, "process exited: {}", .{term}) catch null, false);
             return;
         }
     }
@@ -166,8 +162,7 @@ pub const MihomoManager = struct {
                 failures += 1;
                 std.log.warn("mihomo health check failed failures={d}", .{failures});
                 if (failures >= 3) {
-                    self.state.status = .crashed;
-                    self.state.last_error = std.fmt.allocPrint(self.gpa, "API unreachable (3 failures)", .{}) catch null;
+                    self.updateState(.crashed, null, std.fmt.allocPrint(self.gpa, "API unreachable (3 failures)", .{}) catch null, false);
                     return;
                 }
             }

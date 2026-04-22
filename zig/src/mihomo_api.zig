@@ -19,10 +19,9 @@ fn apiUrl(gpa: std.mem.Allocator, base: []const u8, path: []const u8) ![]const u
     return try std.fmt.allocPrint(gpa, "{s}{s}", .{ trimmed, path });
 }
 
-fn addAuthHeader(req: *std.http.Client.Request, mihomo: config.MihomoConfig) void {
+fn addAuthHeader(req: *std.http.Client.Request, mihomo: config.MihomoConfig, buf: *[256]u8) void {
     if (mihomo.api_secret) |secret| {
-        var buf: [256]u8 = undefined;
-        const auth = std.fmt.bufPrint(&buf, "Bearer {s}", .{secret}) catch return;
+        const auth = std.fmt.bufPrint(buf, "Bearer {s}", .{secret}) catch return;
         req.headers.authorization = .{ .override = auth };
     }
 }
@@ -33,7 +32,8 @@ pub fn reloadConfig(gpa: std.mem.Allocator, io: std.Io, client: *std.http.Client
     defer gpa.free(url);
 
     var req = try client.request(.PUT, try std.Uri.parse(url), .{});
-    addAuthHeader(&req, mihomo);
+    var auth_buf: [256]u8 = undefined;
+    addAuthHeader(&req, mihomo, &auth_buf);
     defer req.deinit();
 
     const body = try std.fmt.allocPrint(gpa, "{{\"path\":\"{s}\"}}", .{mihomo.output});
@@ -67,7 +67,8 @@ pub fn testDelay(
     defer gpa.free(full);
 
     var req = try client.request(.GET, try std.Uri.parse(full), .{});
-    addAuthHeader(&req, mihomo);
+    var auth_buf: [256]u8 = undefined;
+    addAuthHeader(&req, mihomo, &auth_buf);
     defer req.deinit();
     try req.sendBodiless();
 

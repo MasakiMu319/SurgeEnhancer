@@ -14,11 +14,28 @@ pub fn main(init: std.process.Init) !void {
     var args_iter = init.minimal.args.iterate();
     defer args_iter.deinit();
     _ = args_iter.next();
-    const config_path = args_iter.next() orelse "config.yaml";
+    const first_arg = args_iter.next();
+    if (first_arg) |arg| {
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            std.log.info("Usage: surge-enhancer [config.yaml]\n\n  Bridges Surge with Mihomo (Clash.Meta).\n  Default config path: config.yaml", .{});
+            return;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) {
+            std.log.err("unknown option: {s}\nUsage: surge-enhancer [config.yaml]", .{arg});
+            return;
+        }
+    }
+    const config_path = first_arg orelse "config.yaml";
 
-    var cfg = try config.AppConfig.load(gpa, io, config_path);
+    var cfg = config.AppConfig.load(gpa, io, config_path) catch |err| {
+        std.log.err("failed to load config '{s}': {s}", .{ config_path, @errorName(err) });
+        return;
+    };
     errdefer cfg.deinit(gpa);
-    try cfg.validate();
+    cfg.validate() catch |err| {
+        std.log.err("invalid config: {s}", .{@errorName(err)});
+        return;
+    };
 
     std.log.info("surge-enhancer starting with config: {s}", .{config_path});
 
@@ -28,12 +45,10 @@ pub fn main(init: std.process.Init) !void {
     defer app_state.deinit();
 
     const manager = try gpa.create(mihomo_manager.MihomoManager);
-    manager.* = mihomo_manager.MihomoManager.init(io, gpa, cfg.mihomo);
+    manager.* = mihomo_manager.MihomoManager.init(io, gpa, cfg.mihomo, &app_state.inner_data.mihomo, &app_state.inner);
     _ = io.async(mihomoManagerLoop, .{manager});
 
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    fetch_scheduler.spawnRefreshTasks(&app_state, &client);
+    fetch_scheduler.spawnRefreshTasks(&app_state);
 
     const address = try std.Io.net.IpAddress.parseLiteral(cfg.server.listen);
     var srv = try httpz.Server(*state.AppState).init(io, gpa, .{

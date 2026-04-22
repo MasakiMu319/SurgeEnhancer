@@ -7,33 +7,41 @@ const generate = @import("../generate/mihomo.zig");
 const port = @import("../port.zig");
 const mihomo_api = @import("../mihomo_api.zig");
 
-pub fn spawnRefreshTasks(app: *state.AppState, client: *std.http.Client) void {
+pub fn spawnRefreshTasks(app: *state.AppState) void {
     const gpa = app.gpa;
     const io = app.io;
     for (app.config.groups) |group| {
         const group_copy = tryCopyGroupConfig(gpa, group) catch continue;
-        _ = io.async(refreshLoop, .{ app, client, group_copy });
+        _ = io.async(refreshLoop, .{ app, group_copy });
     }
 }
 
-pub fn spawnSingleRefreshTask(app: *state.AppState, client: *std.http.Client, group: config.GroupConfig) void {
+pub fn spawnSingleRefreshTask(app: *state.AppState, group: config.GroupConfig) void {
     const group_copy = tryCopyGroupConfig(app.gpa, group) catch return;
-    _ = app.io.async(refreshLoop, .{ app, client, group_copy });
+    _ = app.io.async(refreshLoop, .{ app, group_copy });
 }
 
-fn refreshLoop(app: *state.AppState, client: *std.http.Client, group: config.GroupConfig) void {
+fn refreshLoop(app: *state.AppState, group: config.GroupConfig) void {
     const gpa = app.gpa;
     const io = app.io;
 
-    // Initial refresh using the provided client
-    doRefresh(app, client, &group) catch |err| { std.log.err("refresh failed for  ++ group.name ++ : {s}", .{@errorName(err)}); };
+    // Initial refresh with fresh client
+    {
+        var fresh_client: std.http.Client = .{ .allocator = gpa, .io = io };
+        defer fresh_client.deinit();
+        doRefresh(app, &fresh_client, &group) catch |err| {
+            std.log.err("refresh failed for  ++ group.name ++ : {s}", .{@errorName(err)});
+        };
+    }
 
     while (true) {
         io.sleep(std.Io.Duration.fromSeconds(@intCast(group.update_interval)), .real) catch break;
         std.log.info("scheduled refresh: {s}", .{group.name});
         var fresh_client: std.http.Client = .{ .allocator = gpa, .io = io };
         defer fresh_client.deinit();
-        doRefresh(app, &fresh_client, &group) catch |err| { std.log.err("refresh failed for  ++ group.name ++ : {s}", .{@errorName(err)}); };
+        doRefresh(app, &fresh_client, &group) catch |err| {
+            std.log.err("refresh failed for  ++ group.name ++ : {s}", .{@errorName(err)});
+        };
     }
 
     // Cleanup copied config
@@ -150,4 +158,3 @@ fn tryCopyGroupConfig(gpa: std.mem.Allocator, group: config.GroupConfig) !config
         .exclude_filter = if (group.exclude_filter) |s| try gpa.dupe(u8, s) else null,
     };
 }
-

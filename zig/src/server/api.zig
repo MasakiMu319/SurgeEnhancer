@@ -229,13 +229,6 @@ fn writeJsonString(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u
     try out.append(gpa, '"');
 }
 
-fn buildJsonArray(gpa: std.mem.Allocator, items: []std.json.Value) std.json.Array {
-    var arr = std.json.Array.init(gpa);
-    for (items) |item| {
-        arr.append(item) catch {};
-    }
-    return arr;
-}
 
 pub fn testDelay(app: *state.AppState, req: *httpz.Request, res: *httpz.Response) !void {
     const node_name = req.param("name").?;
@@ -456,23 +449,30 @@ pub fn addGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Response)
         return;
     }
 
-    // Update config
+    // Update config — deep-copy body fields into gpa since body uses request arena
     var new_groups = try app.gpa.alloc(config.GroupConfig, app.config.groups.len + 1);
     @memcpy(new_groups[0..app.config.groups.len], app.config.groups);
-    new_groups[app.config.groups.len] = body;
+    const idx = app.config.groups.len;
+    new_groups[idx] = .{
+        .name = try app.gpa.dupe(u8, body.name),
+        .subscription = if (body.subscription) |s| try app.gpa.dupe(u8, s) else null,
+        .file = if (body.file) |f| try app.gpa.dupe(u8, f) else null,
+        .update_interval = body.update_interval,
+        .filter = if (body.filter) |f| try app.gpa.dupe(u8, f) else null,
+        .exclude_filter = if (body.exclude_filter) |f| try app.gpa.dupe(u8, f) else null,
+    };
     app.gpa.free(app.config.groups);
     app.config.groups = new_groups;
 
     try app.config.save(app.gpa, app.io, app.config_path);
 
     // Add to runtime state
-    const gs = try model.GroupState.init(app.gpa, body.name);
-    try app.inner_data.groups.put(app.gpa, try app.gpa.dupe(u8, body.name), gs);
+    const copied = new_groups[idx];
+    const gs = try model.GroupState.init(app.gpa, copied.name);
+    try app.inner_data.groups.put(app.gpa, try app.gpa.dupe(u8, copied.name), gs);
 
     // Trigger refresh
-    var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
-    defer client.deinit();
-    scheduler.spawnSingleRefreshTask(app, &client, body);
+    scheduler.spawnSingleRefreshTask(app, copied);
 
     res.status = 201;
     res.content_type = .TEXT;
@@ -490,7 +490,8 @@ pub fn updateGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respon
     };
 
     app.inner.lock();
-    defer app.inner.unlock();
+    var locked = true;
+    defer if (locked) app.inner.unlock();
 
     var found = false;
     for (app.config.groups) |*g| {
@@ -514,9 +515,14 @@ pub fn updateGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respon
 
     try app.config.save(app.gpa, app.io, app.config_path);
 
+    locked = false;
+    app.inner.unlock();
+
+    // doRefresh acquires its own lock
     var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
     defer client.deinit();
-    try scheduler.doRefresh(app, &client, &body);
+    const group = findGroupConfig(app, name) orelse return;
+    try scheduler.doRefresh(app, &client, &group);
 
     res.content_type = .TEXT;
     res.body = try std.fmt.allocPrint(res.arena, "group '{s}' updated\n", .{name});
@@ -526,7 +532,8 @@ pub fn deleteGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respon
     const name = req.param("name").?;
 
     app.inner.lock();
-    defer app.inner.unlock();
+    var locked = true;
+    defer if (locked) app.inner.unlock();
 
     var found_idx: ?usize = null;
     for (app.config.groups, 0..) |g, i| {
@@ -571,6 +578,7 @@ pub fn deleteGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respon
         }
     }
 
+    locked = false;
     app.inner.unlock();
 
     generate.generateMihomoConfig(app.gpa, app.io, app.config, all_nodes.items) catch |err| {
