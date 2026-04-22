@@ -297,7 +297,7 @@ pub fn tcpPingGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respo
     };
 
     const listen_addr = app.config.port.listen_addr;
-    const timeout = std.Io.Duration.fromSeconds(5);
+    const timeout_ms: i32 = 5000;
 
     var results = std.ArrayList(std.json.Value).empty;
     defer {
@@ -308,13 +308,11 @@ pub fn tcpPingGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Respo
     for (entry.value_ptr.nodes) |node| {
         const addr = try std.fmt.allocPrint(app.gpa, "{s}:{d}", .{ node.server, node.port });
         defer app.gpa.free(addr);
-        const direct_ms = tcpConnectMs(app.io, app.gpa, addr, timeout) catch |err| std.json.Value{ .string = try std.fmt.allocPrint(app.gpa, "{s}", .{@errorName(err)}) };
-        defer if (direct_ms == .string) app.gpa.free(direct_ms.string);
+        const direct_ms = tcpConnectMs(app.io, app.gpa, addr, timeout_ms) catch |err| std.json.Value{ .string = try std.fmt.allocPrint(app.gpa, "{s}", .{@errorName(err)}) };
 
         const proxy_addr = try std.fmt.allocPrint(app.gpa, "{s}:{d}", .{ listen_addr, node.assigned_port });
         defer app.gpa.free(proxy_addr);
-        const proxy_ms = socks5ConnectMs(app.io, app.gpa, proxy_addr, "www.gstatic.com", 80, timeout) catch |err| std.json.Value{ .string = try std.fmt.allocPrint(app.gpa, "{s}", .{@errorName(err)}) };
-        defer if (proxy_ms == .string) app.gpa.free(proxy_ms.string);
+        const proxy_ms = socks5ConnectMs(app.io, app.gpa, proxy_addr, "www.gstatic.com", 80, timeout_ms) catch |err| std.json.Value{ .string = try std.fmt.allocPrint(app.gpa, "{s}", .{@errorName(err)}) };
 
         const overhead = if (direct_ms == .integer and proxy_ms == .integer)
             std.json.Value{ .integer = proxy_ms.integer - direct_ms.integer }
@@ -342,80 +340,147 @@ fn buildPingResult(gpa: std.mem.Allocator, name: []const u8, direct: std.json.Va
     return obj;
 }
 
-fn tcpConnectMs(io: std.Io, gpa: std.mem.Allocator, addr: []const u8, timeout: std.Io.Duration) !std.json.Value {
+fn tcpConnectMs(io: std.Io, gpa: std.mem.Allocator, addr: []const u8, timeout_ms: i32) !std.json.Value {
     _ = gpa;
-    const parsed = try std.Io.net.IpAddress.parseLiteral(addr);
     const start = std.Io.Clock.awake.now(io);
-    var stream = try std.Io.net.IpAddress.connect(&parsed, io, .{
-        .mode = .stream,
-        .timeout = .{ .duration = .{ .raw = timeout, .clock = .awake } },
-    });
-    stream.close(io);
+    const fd = try posixConnectWithTimeout(addr, timeout_ms);
+    _ = std.c.close(fd);
     const elapsed = start.durationTo(std.Io.Clock.awake.now(io));
     return .{ .integer = elapsed.toMilliseconds() };
 }
 
-fn socks5ConnectMs(io: std.Io, gpa: std.mem.Allocator, proxy: []const u8, target: []const u8, target_port: u16, timeout: std.Io.Duration) !std.json.Value {
-    const parsed = try std.Io.net.IpAddress.parseLiteral(proxy);
+fn socks5ConnectMs(io: std.Io, gpa: std.mem.Allocator, proxy: []const u8, target: []const u8, target_port: u16, timeout_ms: i32) !std.json.Value {
     const start = std.Io.Clock.awake.now(io);
+    const fd = try posixConnectWithTimeout(proxy, timeout_ms);
+    defer _ = std.c.close(fd);
 
-    var stream = try std.Io.net.IpAddress.connect(&parsed, io, .{
-        .mode = .stream,
-        .timeout = .{ .duration = .{ .raw = timeout, .clock = .awake } },
-    });
-    defer stream.close(io);
+    // Set recv/send timeout for SOCKS5 exchange
+    const tv: std.c.timeval = .{
+        .sec = @intCast(@divFloor(timeout_ms, 1000)),
+        .usec = @intCast(@mod(timeout_ms, 1000) * 1000),
+    };
+    _ = std.c.setsockopt(fd, std.c.SOL.SOCKET, std.c.SO.RCVTIMEO, @ptrCast(&tv), @sizeOf(std.c.timeval));
+    _ = std.c.setsockopt(fd, std.c.SOL.SOCKET, std.c.SO.SNDTIMEO, @ptrCast(&tv), @sizeOf(std.c.timeval));
 
-    // SOCKS5 greeting: VER=5, NMETHODS=1, METHOD=0 (no auth)
-    var wbuf: [512]u8 = undefined;
-    var writer = stream.writer(io, &wbuf);
-    try writer.interface.writeAll(&.{ 0x05, 0x01, 0x00 });
-    try writer.interface.flush();
-
-    // Read server method selection (2 bytes)
-    var rbuf: [512]u8 = undefined;
-    var reader = stream.reader(io, &rbuf);
-    const method_resp = try reader.interface.takeArray(2);
+    // SOCKS5 greeting
+    _ = try posixWrite(fd, &[_]u8{ 0x05, 0x01, 0x00 });
+    var method_resp: [2]u8 = undefined;
+    try posixReadExact(fd, &method_resp);
     if (method_resp[0] != 0x05) return error.NotSocks5;
     if (method_resp[1] == 0xFF) return error.NoAcceptableAuth;
 
-    // CONNECT request: VER CMD RSV ATYP(domain=3) LEN DOMAIN PORT
-    const host_bytes = target;
+    // CONNECT request
     var req_buf = std.ArrayList(u8).empty;
     defer req_buf.deinit(gpa);
-    try req_buf.append(gpa, 0x05); // VER
-    try req_buf.append(gpa, 0x01); // CMD CONNECT
-    try req_buf.append(gpa, 0x00); // RSV
-    try req_buf.append(gpa, 0x03); // ATYP domain
-    try req_buf.append(gpa, @intCast(host_bytes.len)); // domain length
-    try req_buf.appendSlice(gpa, host_bytes);
+    try req_buf.appendSlice(gpa, &[_]u8{ 0x05, 0x01, 0x00, 0x03, @intCast(target.len) });
+    try req_buf.appendSlice(gpa, target);
     try req_buf.append(gpa, @intCast((target_port >> 8) & 0xFF));
     try req_buf.append(gpa, @intCast(target_port & 0xFF));
-    try writer.interface.writeAll(req_buf.items);
-    try writer.interface.flush();
+    _ = try posixWrite(fd, req_buf.items);
 
-    // Read CONNECT reply header: VER REP RSV ATYP (4 bytes)
-    const reply_header = try reader.interface.takeArray(4);
+    // Read reply header
+    var reply: [4]u8 = undefined;
+    try posixReadExact(fd, &reply);
 
-    // Drain bound address bytes based on ATYP
-    switch (reply_header[3]) {
-        0x01 => { // IPv4 + port = 6 bytes
-            try reader.interface.discardAll(6);
+    // Drain bound address
+    switch (reply[3]) {
+        0x01 => { var skip: [6]u8 = undefined; try posixReadExact(fd, &skip); },
+        0x03 => {
+            var len_buf: [1]u8 = undefined;
+            try posixReadExact(fd, &len_buf);
+            const skip_len = @as(usize, len_buf[0]) + 2;
+            var skip_buf: [258]u8 = undefined;
+            try posixReadExact(fd, skip_buf[0..skip_len]);
         },
-        0x03 => { // Domain: 1 byte len + domain + 2 bytes port
-            const len_byte = try reader.interface.takeArray(1);
-            const skip_len = @as(usize, len_byte[0]) + 2;
-            try reader.interface.discardAll(skip_len);
-        },
-        0x04 => { // IPv6 + port = 18 bytes
-            try reader.interface.discardAll(18);
-        },
+        0x04 => { var skip: [18]u8 = undefined; try posixReadExact(fd, &skip); },
         else => {},
     }
 
-    if (reply_header[1] != 0x00) return error.Socks5ConnectFailed;
+    if (reply[1] != 0x00) return error.Socks5ConnectFailed;
 
     const elapsed = start.durationTo(std.Io.Clock.awake.now(io));
     return .{ .integer = elapsed.toMilliseconds() };
+}
+
+fn posixConnectWithTimeout(addr: []const u8, timeout_ms: i32) !std.c.fd_t {
+    // Parse host:port
+    const colon = std.mem.lastIndexOf(u8, addr, ":") orelse return error.InvalidAddress;
+    const host = addr[0..colon];
+    const port = std.fmt.parseInt(u16, addr[colon + 1 ..], 10) catch return error.InvalidAddress;
+
+    // Null-terminate host for getaddrinfo
+    var host_buf: [256]u8 = undefined;
+    if (host.len >= host_buf.len) return error.InvalidAddress;
+    @memcpy(host_buf[0..host.len], host);
+    host_buf[host.len] = 0;
+
+    var port_buf: [8]u8 = undefined;
+    const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{port}) catch return error.InvalidAddress;
+    port_buf[port_str.len] = 0;
+
+    var hints: std.c.addrinfo = .{
+        .flags = .{},
+        .family = std.c.AF.UNSPEC,
+        .socktype = std.c.SOCK.STREAM,
+        .protocol = 0,
+        .addrlen = 0,
+        .canonname = null,
+        .addr = null,
+        .next = null,
+    };
+
+    var result: ?*std.c.addrinfo = null;
+    const gai_rc = std.c.getaddrinfo(@ptrCast(host_buf[0 .. host.len + 1]), @ptrCast(port_buf[0 .. port_str.len + 1]), &hints, &result);
+    if (@intFromEnum(gai_rc) != 0 or result == null) return error.InvalidAddress;
+    defer std.c.freeaddrinfo(result.?);
+
+    const ai = result.?;
+    const fd = std.c.socket(@intCast(ai.family), std.c.SOCK.STREAM, 0);
+    if (fd < 0) return error.SocketCreateFailed;
+    errdefer _ = std.c.close(fd);
+
+    // Set non-blocking via fcntl (macOS doesn't support SOCK_NONBLOCK)
+    const flags = std.c.fcntl(fd, std.c.F.GETFL);
+    _ = std.c.fcntl(fd, std.c.F.SETFL, flags | 0x0004); // O_NONBLOCK
+
+    const rc = std.c.connect(fd, ai.addr.?, ai.addrlen);
+    if (rc < 0) {
+        const err = std.posix.errno(rc);
+        if (err != .INPROGRESS) return error.ConnectFailed;
+
+        var pfds = [1]std.c.pollfd{.{ .fd = fd, .events = std.c.POLL.OUT, .revents = 0 }};
+        const prc = std.c.poll(&pfds, 1, timeout_ms);
+        if (prc <= 0) return error.ConnectionTimedOut;
+
+        // Check connect result
+        var so_err: c_int = 0;
+        var so_len: std.c.socklen_t = @sizeOf(c_int);
+        _ = std.c.getsockopt(fd, std.c.SOL.SOCKET, std.c.SO.ERROR, @ptrCast(&so_err), &so_len);
+        if (so_err != 0) return error.ConnectionRefused;
+    }
+
+    // Clear NONBLOCK
+    _ = std.c.fcntl(fd, std.c.F.SETFL, flags); // restore original flags
+
+    return fd;
+}
+
+fn posixWrite(fd: std.c.fd_t, data: []const u8) !void {
+    var written: usize = 0;
+    while (written < data.len) {
+        const rc = std.c.write(fd, data[written..].ptr, data[written..].len);
+        if (rc < 0) return error.WriteFailed;
+        written += @intCast(rc);
+    }
+}
+
+fn posixReadExact(fd: std.c.fd_t, buf: []u8) !void {
+    var total: usize = 0;
+    while (total < buf.len) {
+        const rc = std.c.read(fd, buf[total..].ptr, buf[total..].len);
+        if (rc <= 0) return error.ReadFailed;
+        total += @intCast(rc);
+    }
 }
 
 pub fn addGroup(app: *state.AppState, req: *httpz.Request, res: *httpz.Response) !void {
