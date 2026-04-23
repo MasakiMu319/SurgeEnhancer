@@ -59,6 +59,9 @@ fn parse_single_uri(uri: &str, group: &str) -> Result<ProxyNode> {
         let rest = uri.split_once("://").unwrap().1;
         return parse_hysteria2(rest, group);
     }
+    if let Some(rest) = uri.strip_prefix("anytls://") {
+        return parse_anytls(rest, group);
+    }
     anyhow::bail!("unsupported proxy URI scheme: {uri}");
 }
 
@@ -224,6 +227,38 @@ fn parse_hysteria2(rest: &str, group: &str) -> Result<ProxyNode> {
     })
 }
 
+/// AnyTLS URI: anytls://password@host:port?params#name
+fn parse_anytls(rest: &str, group: &str) -> Result<ProxyNode> {
+    let (main, name) = split_fragment(rest);
+    let (password, after_at) = main.split_once('@').context("anytls missing '@'")?;
+    let (host_port, query) = split_query(after_at);
+    let (host, port) = parse_host_port(host_port)?;
+
+    let mut params = parse_query_params(query);
+    params.insert(
+        "password".into(),
+        serde_json::Value::String(percent_decode(password)),
+    );
+
+    if let Some(value) = params.get("insecure").and_then(|v| v.as_str()) {
+        let insecure = matches!(value, "1" | "true" | "TRUE" | "True");
+        params.insert(
+            "skip-cert-verify".into(),
+            serde_json::Value::Bool(insecure),
+        );
+    }
+
+    Ok(ProxyNode {
+        name: percent_decode(&name),
+        group: group.to_string(),
+        node_type: NodeType::Anytls,
+        server: host.to_string(),
+        port,
+        params,
+        assigned_port: 0,
+    })
+}
+
 // --- Helpers ---
 
 fn split_fragment(s: &str) -> (&str, String) {
@@ -235,8 +270,8 @@ fn split_fragment(s: &str) -> (&str, String) {
 
 fn split_query(s: &str) -> (&str, &str) {
     match s.split_once('?') {
-        Some((host_port, query)) => (host_port, query),
-        None => (s, ""),
+        Some((host_port, query)) => (host_port.trim_end_matches('/'), query),
+        None => (s.trim_end_matches('/'), ""),
     }
 }
 
@@ -287,4 +322,50 @@ fn b64_decode(s: &str) -> Result<String> {
 
 fn json_str(val: &serde_json::Value, key: &str) -> Option<String> {
     val.get(key)?.as_str().map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_uri_lines;
+    use crate::model::NodeType;
+
+    #[test]
+    fn parses_anytls_uri_lines() {
+        let text = "anytls://secret-token@tw1.example.com:2443/?sni=api.example.com&insecure=1#%F0%9F%87%B9%F0%9F%87%BC%20Taiwan";
+        let nodes = parse_uri_lines(text, "TestGroup").expect("anytls URI should parse");
+
+        assert_eq!(nodes.len(), 1);
+        let node = &nodes[0];
+        assert_eq!(node.name, "🇹🇼 Taiwan");
+        assert_eq!(node.group, "TestGroup");
+        assert_eq!(node.node_type, NodeType::Anytls);
+        assert_eq!(node.server, "tw1.example.com");
+        assert_eq!(node.port, 2443);
+        assert_eq!(
+            node.params.get("password").and_then(|v| v.as_str()),
+            Some("secret-token")
+        );
+        assert_eq!(
+            node.params.get("sni").and_then(|v| v.as_str()),
+            Some("api.example.com")
+        );
+        assert_eq!(
+            node.params.get("skip-cert-verify").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn keeps_anytls_insecure_false_when_present() {
+        let text = "anytls://pw@hk.example.com:443/?insecure=false#hk";
+        let nodes = parse_uri_lines(text, "TestGroup").expect("anytls URI should parse");
+
+        assert_eq!(
+            nodes[0]
+                .params
+                .get("skip-cert-verify")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
+    }
 }

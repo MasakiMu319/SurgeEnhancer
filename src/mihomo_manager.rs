@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 use tokio::time::{self, Duration};
@@ -41,6 +44,63 @@ pub struct MihomoManager {
 }
 
 impl MihomoManager {
+    fn spawn_log_task<R>(stream: R, source: &'static str, log_path: std::path::PathBuf)
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+    {
+        tokio::spawn(async move {
+            let mut log_file = match OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .await
+            {
+                Ok(file) => Some(file),
+                Err(error) => {
+                    tracing::warn!(
+                        target: "mihomo",
+                        error = %error,
+                        path = %log_path.display(),
+                        source,
+                        "failed to open mihomo log file"
+                    );
+                    None
+                }
+            };
+            let mut lines = BufReader::new(stream).lines();
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        tracing::info!(target: "mihomo", source, "{line}");
+                        if let Some(file) = log_file.as_mut() {
+                            let entry = format!("[{source}] {line}\n");
+                            if let Err(error) = file.write_all(entry.as_bytes()).await {
+                                tracing::warn!(
+                                    target: "mihomo",
+                                    error = %error,
+                                    path = %log_path.display(),
+                                    source,
+                                    "failed to write mihomo log line"
+                                );
+                                log_file = None;
+                            }
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "mihomo",
+                            error = %error,
+                            source,
+                            "failed to read mihomo log stream"
+                        );
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     pub fn new(mihomo_config: MihomoConfig) -> Self {
         Self {
             state: Arc::new(RwLock::new(MihomoState::default())),
@@ -81,15 +141,24 @@ impl MihomoManager {
     /// Start mihomo process and return the Child.
     async fn start_process(&self) -> Result<tokio::process::Child, String> {
         let output_path = self.mihomo_config.output.display().to_string();
+        let log_path = self.mihomo_config.output.with_file_name("mihomo.log");
 
-        let child = Command::new("mihomo")
+        let mut child = Command::new("mihomo")
             .arg("-f")
             .arg(&output_path)
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("failed to spawn mihomo: {e}"))?;
+
+        if let Some(stdout) = child.stdout.take() {
+            Self::spawn_log_task(stdout, "stdout", log_path.clone());
+        }
+
+        if let Some(stderr) = child.stderr.take() {
+            Self::spawn_log_task(stderr, "stderr", log_path);
+        }
 
         Ok(child)
     }
