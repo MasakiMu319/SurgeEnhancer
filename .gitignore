@@ -5,11 +5,5 @@
 config.yaml
 mihomo_output.yaml
 mihomo_template.yaml
-AGENTS.md
 .codex-skill-work/
 .cache/
-zig/.zig-cache/
-zig/zig-out/
-zig/zig-pkg/
-zig/root
-zig/test_config

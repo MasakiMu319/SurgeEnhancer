@@ -12,15 +12,11 @@ Surge → (socks5) → Mihomo (127.0.0.1:PORT) → (ss/vmess/...) → Remote Ser
 
 ## Implementations
 
-Two implementations, both fully functional and feature-equivalent:
-
-| | **Zig** | **Rust** |
-|---|---|---|
-| Binary size | 1.8 MB | 11 MB |
-| Memory (RSS) | ~19 MB | ~19 MB |
-| API latency | ~0.5ms | ~0.8ms |
-| Dependencies | None (static linked) | None (system libs only) |
-| Build | `zig build -Doptimize=ReleaseFast` | `cargo build --release` |
+| | |
+|---|---|
+| Backend | Mihomo |
+| Language | Rust |
+| Build | `cargo build --release` |
 
 ## Features
 
@@ -37,23 +33,17 @@ Two implementations, both fully functional and feature-equivalent:
 ## Prerequisites
 
 - [Mihomo](https://github.com/MetaCubeX/mihomo) installed and available in `PATH`
-- For building Zig version: [Zig](https://ziglang.org/) 0.16+, libyaml, pcre2
 
 ## Install
 
 ### Download binary (recommended)
 
 Download from [Releases](https://github.com/MasakiMu319/SurgeEnhancer/releases):
-- `surge-enhancer-zig-macos-arm64` — smaller, faster
-- `surge-enhancer-rust-macos-arm64` — alternative
+- `surge-enhancer-macos-arm64`
 
 ### Build from source
 
 ```bash
-# Zig (recommended)
-cd zig && zig build -Doptimize=ReleaseFast
-
-# Rust
 cargo build --release
 ```
 
